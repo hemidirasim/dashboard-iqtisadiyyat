@@ -1,0 +1,280 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextIndex"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model advertising {
+  id          BigInt    @id @default(autoincrement())
+  title       String?   @db.Text
+  content     String?   @db.Text
+  status      Boolean   @default(true)
+  image_url   String?   @db.VarChar(255)
+  default_img String?   @db.VarChar(200)
+  url         String?   @db.VarChar(255)
+  finish_date DateTime? @db.DateTime(0)
+  deleted_at  DateTime? @db.Timestamp(0)
+  created_at  DateTime? @db.Timestamp(0)
+  updated_at  DateTime? @db.Timestamp(0)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model cache {
+  key        String @db.VarChar(255)
+  value      String @db.MediumText
+  expiration Int
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model cache_locks {
+  key        String @db.VarChar(255)
+  owner      String @db.VarChar(255)
+  expiration Int
+
+  @@ignore
+}
+
+model categories {
+  id          BigInt    @unique(map: "id") @default(autoincrement()) @db.UnsignedBigInt
+  order       Int?
+  home        Boolean   @default(false)
+  title       String    @db.Text
+  slug        String?   @db.VarChar(255)
+  sub_title   String?   @db.Text
+  content     String?   @db.Text
+  seo_title   String?   @db.Text
+  seo_keyword String?   @db.Text
+  image_url   String?   @db.VarChar(255)
+  seo_desc    String?   @db.Text
+  status      Boolean   @default(true)
+  parent_id   String    @default("0") @db.VarChar(255)
+  deleted_at  DateTime? @db.Timestamp(0)
+  created_at  DateTime? @db.Timestamp(0)
+  updated_at  DateTime? @db.Timestamp(0)
+
+  @@index([deleted_at], map: "idx_categories_deleted")
+}
+
+model category_post {
+  id          BigInt    @unique(map: "id") @default(autoincrement()) @db.UnsignedBigInt
+  category_id BigInt?
+  post_id     BigInt?
+  created_at  DateTime? @db.Timestamp(0)
+  updated_at  DateTime? @db.Timestamp(0)
+
+  @@index([category_id, post_id], map: "idx_category_post")
+  @@index([category_id], map: "idx_category_post_category")
+  @@index([category_id, post_id], map: "idx_category_post_lookup")
+  @@index([post_id, category_id], map: "idx_category_post_postid_categoryid")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model contacts {
+  id         BigInt    @db.UnsignedBigInt
+  name       String    @db.Text
+  email      String    @db.VarChar(255)
+  phone      String    @db.VarChar(255)
+  subject    String    @db.Text
+  message    String    @db.Text
+  deleted_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model failed_jobs {
+  id         BigInt   @db.UnsignedBigInt
+  uuid       String   @db.VarChar(255)
+  connection String   @db.Text
+  queue      String   @db.Text
+  payload    String   @db.LongText
+  exception  String   @db.LongText
+  failed_at  DateTime @default(now()) @db.Timestamp(0)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model menus {
+  id         BigInt    @db.UnsignedBigInt
+  title      String    @db.Text
+  url        String?   @db.VarChar(255)
+  content    String?   @db.Text
+  status     Boolean   @default(false)
+  parent_id  BigInt    @default(0)
+  deleted_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model messages {
+  id      Int
+  name    String  @db.VarChar(20)
+  phone   String  @db.VarChar(25)
+  email   String? @db.VarChar(50)
+  date    String  @db.VarChar(256)
+  doctor  String? @db.VarChar(223)
+  message String  @db.Text
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model migrations {
+  id        Int    @db.UnsignedInt
+  migration String @db.VarChar(255)
+  batch     Int
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model password_resets {
+  email      String    @db.VarChar(255)
+  token      String    @db.VarChar(255)
+  created_at DateTime? @db.Timestamp(0)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model personal_access_tokens {
+  id             BigInt    @db.UnsignedBigInt
+  tokenable_type String    @db.VarChar(255)
+  tokenable_id   BigInt    @db.UnsignedBigInt
+  name           String    @db.VarChar(255)
+  token          String    @db.VarChar(64)
+  abilities      String?   @db.Text
+  last_used_at   DateTime? @db.Timestamp(0)
+  created_at     DateTime? @db.Timestamp(0)
+  updated_at     DateTime? @db.Timestamp(0)
+
+  @@ignore
+}
+
+model post_galeries {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  post_id    Int?
+  name       String?   @db.VarChar(255)
+  deleted_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model posts {
+  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  opened_user_id Int?
+  title          String    @db.Text
+  title_color    Int       @default(0) @db.TinyInt
+  slug           String?   @db.VarChar(500)
+  keywords       String?   @db.LongText
+  sub_title      String?   @db.Text
+  content        String?   @db.LongText
+  search         String?   @db.LongText
+  seo_title      String?   @db.Text
+  seo_keyword    String?   @db.Text
+  seo_desc       String?   @db.Text
+  view_count     BigInt    @default(0)
+  count_show     Int       @default(0) @db.TinyInt
+  status         Boolean   @default(true)
+  publish        Int       @default(1) @db.TinyInt
+  hidden         Boolean   @default(false)
+  image_url      String?   @default("'iqtisadiyyat_logo_yasil-min.png'") @db.VarChar(500)
+  video_url      String?   @db.VarChar(255)
+  youtube_link   String?   @db.Text
+  youtube_image  String?   @db.VarChar(255)
+  published_date DateTime? @db.DateTime(0)
+  deleted_at     DateTime? @db.Timestamp(0)
+  deleted_by     Int?
+  created_at     DateTime? @db.Timestamp(0)
+  updated_at     DateTime? @db.Timestamp(0)
+
+  @@index([deleted_at, status, published_date], map: "idx_posts_deleted_status")
+  @@index([status, deleted_at, published_date(sort: Desc)], map: "idx_posts_optimized")
+  @@index([status, deleted_at, published_date], map: "idx_posts_status_date")
+  @@index([status, deleted_at, published_date(sort: Desc)], map: "idx_posts_status_deleted_published")
+  @@index([published_date], map: "idx_published_date")
+  @@index([status], map: "idx_status")
+  @@index([status, published_date], map: "idx_status_published_date")
+  @@fulltext([title], map: "ft_search_title")
+}
+
+model settings {
+  id         BigInt    @id @default(autoincrement())
+  key        String?   @db.VarChar(255)
+  title      String?   @db.Text
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+  deleted_at DateTime? @db.Timestamp(0)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model translates {
+  id         BigInt    @db.UnsignedBigInt
+  title      String    @db.Text
+  key        String    @db.Text
+  deleted_at DateTime? @db.Timestamp(0)
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+
+  @@ignore
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model users {
+  id                BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  name              String    @db.VarChar(255)
+  surname           String?   @db.VarChar(255)
+  email             String?   @unique(map: "users_email_unique") @db.VarChar(255)
+  status            Boolean   @default(true)
+  role              Int       @default(0) @db.TinyInt
+  email_verified_at DateTime? @db.Timestamp(0)
+  password          String    @db.VarChar(255)
+  deleted_at        DateTime? @db.Timestamp(0)
+  remember_token    String?   @db.VarChar(100)
+  created_at        DateTime? @db.Timestamp(0)
+  updated_at        DateTime? @db.Timestamp(0)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model wiki_categories {
+  id         BigInt       @id @default(autoincrement())
+  order      Int?
+  parent_id  Int          @default(0)
+  title      String?      @db.LongText
+  slug       String?      @db.VarChar(255)
+  status     Int          @default(1) @db.TinyInt
+  created_at DateTime     @default(now()) @db.Timestamp(0)
+  updated_at DateTime     @default(now()) @db.Timestamp(0)
+  deleted_at DateTime?    @db.Timestamp(0)
+  wiki_posts wiki_posts[]
+}
+
+model wiki_posts {
+  id              BigInt           @id @default(autoincrement())
+  title           String?          @db.VarChar(255)
+  slug            String?          @db.VarChar(255)
+  sub_title       String?          @db.VarChar(255)
+  content         String?          @db.Text
+  image_url       String?          @db.VarChar(255)
+  status          Int              @default(1) @db.TinyInt
+  category_id     BigInt?
+  created_at      DateTime         @default(now()) @db.Timestamp(0)
+  updated_at      DateTime         @default(now()) @db.Timestamp(0)
+  deleted_at      DateTime?        @db.Timestamp(0)
+  wiki_categories wiki_categories? @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "wiki_posts_ibfk_1")
+
+  @@index([category_id], map: "category_id")
+}
