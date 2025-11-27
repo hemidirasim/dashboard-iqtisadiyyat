@@ -46,45 +46,43 @@ export async function PUT(request: Request, { params }: Params) {
     const id = BigInt(postId);
     const now = new Date();
 
-    // publishedDate varsa, onu istifadə et, yoxsa cari tarix və saatı istifadə et
-    let publishedDate: Date | null = null;
-    if (data.publish) {
-      if (data.publishedDate) {
-        try {
-          // datetime-local formatından Date obyektinə çevir
-          // Formdan gələn tarix Bakı vaxtındadır (UTC+4), onu UTC-yə çevirməliyik
-          // Format: YYYY-MM-DDTHH:mm (Bakı vaxtı)
-          const [datePart, timePart] = data.publishedDate.split("T");
-          if (!datePart || !timePart) {
-            throw new Error("Invalid date format");
-          }
-          const [year, month, day] = datePart.split("-").map(Number);
-          const [hours, minutes] = timePart.split(":").map(Number);
-          
-          // Validate date components
-          if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hours) || isNaN(minutes)) {
-            throw new Error("Invalid date components");
-          }
-          
-          // Bakı vaxtını local Date obyektinə çevir (local timezone-da)
-          const bakuDateLocal = new Date(year, month - 1, day, hours, minutes);
-          
-          // Validate created date
-          if (isNaN(bakuDateLocal.getTime())) {
-            throw new Error("Invalid date");
-          }
-          
-          // Bakı vaxtını UTC-yə çevir (4 saat çıxırıq)
-          publishedDate = new Date(bakuDateLocal.getTime() - (4 * 60 * 60 * 1000));
-        } catch (error) {
-          console.error("Error parsing publishedDate:", error, data.publishedDate);
-          // Fallback: use current date
-          publishedDate = now;
+  // publishedDate varsa, onu istifadə et, yoxsa cari tarix və saatı istifadə et
+  let publishedDate: Date | null = null;
+  if (data.publish) {
+    if (data.publishedDate) {
+      try {
+        // datetime-local formatından Date obyektinə çevir
+        // Format: YYYY-MM-DDTHH:mm
+        const [datePart, timePart] = data.publishedDate.split("T");
+        if (!datePart || !timePart) {
+          throw new Error("Invalid date format");
         }
-      } else {
+        const [year, month, day] = datePart.split("-").map(Number);
+        const [hours, minutes] = timePart.split(":").map(Number);
+
+        // Validate date components
+        if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hours) || isNaN(minutes)) {
+          throw new Error("Invalid date components");
+        }
+
+        // İstifadəçinin girdiyi tarix və saatı olduğu kimi saxla (timezone tətbiq etmirik)
+        const localDate = new Date(Date.UTC(year, month - 1, day, hours, minutes));
+
+        if (isNaN(localDate.getTime())) {
+          throw new Error("Invalid date");
+        }
+
+        // Heç bir convertasiya etmədən istifadəçinin göndərdiyi vaxtı yadda saxla
+        publishedDate = localDate;
+      } catch (error) {
+        console.error("Error parsing publishedDate:", error, data.publishedDate);
+        // Fallback: use current date
         publishedDate = now;
       }
+    } else {
+      publishedDate = now;
     }
+  }
 
     // Update data - yalnız dəyərləri olan field-ləri əlavə et
     const updateData: any = {

@@ -58,163 +58,133 @@ export async function GET(request: Request) {
       categoryPostIds = categoryPosts.map((cp) => cp.post_id).filter(Boolean) as bigint[];
     }
 
-    let posts: any[] = [];
-    
-    try {
-      posts = await prisma.posts.findMany({
-        take: limit,
-        where: {
-          // Admin isə və includeDeleted true-dursa, silinmiş xəbərləri də göstər
-          ...(includeDeleted ? {} : { deleted_at: null }),
-          // Admin panelində gizli xəbərləri də göstər
-          ...(search
-            ? {
-                OR: [
-                  {
-                    title: {
-                      contains: search,
-                    },
-                  },
-                  {
-                    sub_title: {
-                      contains: search,
-                    },
-                  },
-                ],
-              }
-            : {}),
-          ...(publish === "draft"
-            ? {
-                publish: 0,
-              }
-            : publish === "live"
-              ? {
-                  publish: 1,
-                }
-              : {}),
-          ...(categoryId && categoryPostIds.length > 0
-            ? {
-                id: {
-                  in: categoryPostIds,
+    const postsWhereFilter = {
+      ...(includeDeleted ? {} : { deleted_at: null }),
+      ...(search
+        ? {
+            OR: [
+              {
+                title: {
+                  contains: search,
                 },
-              }
-            : categoryId && categoryPostIds.length === 0
-              ? {
-                  id: {
-                    in: [],
-                  },
-                }
-              : {}),
-          ...(authorId
-            ? {
-                opened_user_id: Number(authorId),
-              }
-            : {}),
-        },
-        orderBy: { created_at: "desc" },
-        select: isSimpleFormat
-          ? { id: true, title: true }
-          : {
-              id: true,
-              title: true,
-              slug: true,
-              publish: true,
-              status: true,
-              hidden: true,
-              view_count: true,
-              published_date: true,
-              created_at: true,
-              deleted_at: true,
-              deleted_by: true, // deleted_by field-i əlavə edildi
-              opened_user_id: true, // Müəllif ID-si
-            } as any, // Type assertion - deleted_by field-i hələ database-də olmaya bilər
-      });
-    } catch (error: any) {
-    // Əgər deleted_by field-i yoxdursa, onu select-dən çıxarırıq
-    const errorMessage = String(error.message || "");
-    const errorCode = String(error.code || "");
-    const errorMeta = error.meta || {};
-    
-    // Prisma validation xətaları
-    if (
-      errorMessage.includes("deleted_by") ||
-      errorMessage.includes("Unknown field") ||
-      errorCode === "P2009" ||
-      errorCode === "P2012" ||
-      errorCode === "P2025"
-    ) {
-      console.log("⚠️  deleted_by field-i mövcud deyil, fallback edirəm...");
-      posts = await prisma.posts.findMany({
-        take: limit,
-        where: {
-          // Admin isə və includeDeleted true-dursa, silinmiş xəbərləri də göstər
-          ...(includeDeleted ? {} : { deleted_at: null }),
-          // Admin panelində gizli xəbərləri də göstər
-          ...(search
-            ? {
-                OR: [
-                  {
-                    title: {
-                      contains: search,
-                    },
-                  },
-                  {
-                    sub_title: {
-                      contains: search,
-                    },
-                  },
-                ],
-              }
-            : {}),
-          ...(publish === "draft"
-            ? {
-                publish: 0,
-              }
-            : publish === "live"
-              ? {
-                  publish: 1,
-                }
-              : {}),
-          ...(categoryId && categoryPostIds.length > 0
-            ? {
-                id: {
-                  in: categoryPostIds,
+              },
+              {
+                sub_title: {
+                  contains: search,
                 },
-              }
-            : categoryId && categoryPostIds.length === 0
-              ? {
-                  id: {
-                    in: [],
-                  },
-                }
-              : {}),
-          ...(authorId
-            ? {
-                opened_user_id: Number(authorId),
-              }
-            : {}),
-        },
-        orderBy: { created_at: "desc" },
-        select: isSimpleFormat
-          ? { id: true, title: true }
-            : {
-              id: true,
-              title: true,
-              slug: true,
-              publish: true,
-              status: true,
-              hidden: true,
-              view_count: true,
-              published_date: true,
-              created_at: true,
-              deleted_at: true,
-              opened_user_id: true, // Müəllif ID-si
+              },
+            ],
+          }
+        : {}),
+      ...(publish === "draft"
+        ? {
+            publish: 0,
+          }
+        : publish === "live"
+          ? {
+              publish: 1,
+            }
+          : {}),
+      ...(categoryId && categoryPostIds.length > 0
+        ? {
+            id: {
+              in: categoryPostIds,
             },
+          }
+        : categoryId && categoryPostIds.length === 0
+          ? {
+              id: {
+                in: [],
+              },
+            }
+          : {}),
+      ...(authorId
+        ? {
+            opened_user_id: Number(authorId),
+          }
+        : {}),
+    };
+
+    const fetchPostsFromDb = async (options?: { includeDeletedBy?: boolean }) => {
+      const includeDeletedBy = options?.includeDeletedBy ?? true;
+      const selectFields = isSimpleFormat
+        ? { id: true, title: true }
+        : {
+            id: true,
+            title: true,
+            slug: true,
+            publish: true,
+            status: true,
+            hidden: true,
+            view_count: true,
+            published_date: true,
+            created_at: true,
+            deleted_at: true,
+            ...(includeDeletedBy ? { deleted_by: true } : {}),
+            opened_user_id: true,
+          };
+
+      return prisma.posts.findMany({
+        take: limit,
+        where: postsWhereFilter,
+        orderBy: [
+          {
+            published_date: {
+              sort: "desc",
+              nulls: "last",
+            },
+          },
+          {
+            created_at: "desc",
+          },
+        ],
+        select: selectFields as any,
       });
-    } else {
-      throw error;
+    };
+
+    const reconnectPrisma = async () => {
+      try {
+        await prisma.$disconnect();
+      } catch {
+        // ignore disconnect errors
+      }
+      await prisma.$connect();
+    };
+
+    let posts: any[] = [];
+    try {
+      posts = await fetchPostsFromDb();
+    } catch (error: any) {
+      const errorMessage = String(error.message || "");
+      const errorCode = String(error.code || "");
+
+      const isConnectionIssue =
+        errorCode === "P1017" || errorMessage.includes("Server has closed the connection");
+
+      if (isConnectionIssue) {
+        console.warn("⚠️  Prisma connection closed (P1017). Yenidən qoşulmağa çalışıram...");
+        try {
+          await reconnectPrisma();
+          posts = await fetchPostsFromDb();
+        } catch (retryError) {
+          console.error("❌ Prisma reconnect sonrası da alınmadı:", retryError);
+          throw retryError;
+        }
+      }
+
+      if (
+        errorMessage.includes("deleted_by") ||
+        errorMessage.includes("Unknown field") ||
+        errorCode === "P2009" ||
+        errorCode === "P2012" ||
+        errorCode === "P2025"
+      ) {
+        console.log("⚠️  deleted_by field-i mövcud deyil, fallback edirəm...");
+        posts = await fetchPostsFromDb({ includeDeletedBy: false });
+      } else {
+        throw error;
+      }
     }
-  }
 
   // Müəllif məlumatlarını gətir
   const authorIds = posts
@@ -344,33 +314,30 @@ export async function POST(request: Request) {
       if (data.publishedDate) {
         try {
           // datetime-local formatından Date obyektinə çevir
-          // Formdan gələn tarix Bakı vaxtındadır (UTC+4), onu UTC-yə çevirməliyik
-          // Format: YYYY-MM-DDTHH:mm (Bakı vaxtı)
+          // Format: YYYY-MM-DDTHH:mm
           const [datePart, timePart] = data.publishedDate.split("T");
           if (!datePart || !timePart) {
             throw new Error("Invalid date format");
           }
           const [year, month, day] = datePart.split("-").map(Number);
           const [hours, minutes] = timePart.split(":").map(Number);
-          
+
           // Validate date components
           if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hours) || isNaN(minutes)) {
             throw new Error("Invalid date components");
           }
-          
-          // Bakı vaxtını local Date obyektinə çevir (local timezone-da)
-          const bakuDateLocal = new Date(year, month - 1, day, hours, minutes);
-          
-          // Validate created date
-          if (isNaN(bakuDateLocal.getTime())) {
+
+          // İstifadəçinin girdiyi tarix və saatı olduğu kimi saxla (timezone tətbiq etmirik)
+          const localDate = new Date(Date.UTC(year, month - 1, day, hours, minutes));
+
+          if (isNaN(localDate.getTime())) {
             throw new Error("Invalid date");
           }
-          
-          // Bakı vaxtını UTC-yə çevir (4 saat çıxırıq)
-          publishedDate = new Date(bakuDateLocal.getTime() - (4 * 60 * 60 * 1000));
+
+          // Heç bir convertasiya etmədən istifadəçinin göndərdiyi vaxtı yadda saxla
+          publishedDate = localDate;
         } catch (error) {
           console.error("Error parsing publishedDate:", error, data.publishedDate);
-          // Fallback: use current date
           publishedDate = now;
         }
       } else {

@@ -61,7 +61,7 @@ export function PostsRealtime({ initialPosts }: PostsRealtimeProps) {
       setIsRefreshing(true);
       const params = new URLSearchParams();
       const q = searchParams.get("q");
-      const publish = searchParams.get("publish");
+      const publish = searchParams.get("publish") ?? "live";
       const category = searchParams.get("category");
       const author = searchParams.get("author");
       
@@ -240,7 +240,7 @@ export function PostsRealtime({ initialPosts }: PostsRealtimeProps) {
                           title="Saytda görüntülə"
                         >
                           <a
-                            href={`/news/${post.slug}`}
+                            href={`https://iqtisadiyyat.az/az/post/${post.slug}-${post.id}`}
                             target="_blank"
                             rel="noopener noreferrer"
                           >

@@ -39,9 +39,10 @@ export function PostsFilters({
   const params = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  const updateQuery = (key: string, value: string) => {
+  const updateQuery = (key: string, value: string, options?: { keepAllValue?: boolean }) => {
     const next = new URLSearchParams(params);
-    if (value && value !== "all") {
+    const shouldKeepAll = options?.keepAllValue && value === "all";
+    if (value && (value !== "all" || shouldKeepAll)) {
       next.set(key, value);
     } else {
       next.delete(key);
@@ -65,8 +66,8 @@ export function PostsFilters({
         />
       </div>
       <Select
-        defaultValue={initialPublish || "all"}
-        onValueChange={(value) => updateQuery("publish", value)}
+        defaultValue={initialPublish || "live"}
+        onValueChange={(value) => updateQuery("publish", value, { keepAllValue: true })}
       >
         <SelectTrigger>
           <SelectValue placeholder="Yayımlanma filtri" />

@@ -72,3 +72,5 @@ export async function POST(request: Request) {
   return NextResponse.json({ id: category.id.toString() }, { status: 201 });
 }
 
+
+

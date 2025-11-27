@@ -19,7 +19,7 @@ type Props = {
 
 export default async function PostsPage({ searchParams }: Props) {
   const search = searchParams.q;
-  const publish = searchParams.publish;
+  const publish = searchParams.publish ?? "live";
   const categoryId = searchParams.category;
   const authorId = searchParams.author;
   const includeDeleted = searchParams.includeDeleted === "true";
@@ -100,7 +100,15 @@ export default async function PostsPage({ searchParams }: Props) {
           }
         : {}),
     },
-    orderBy: { created_at: "desc" },
+    orderBy: [
+      {
+        published_date: {
+          sort: "desc",
+          nulls: "last",
+        },
+      },
+      { created_at: "desc" },
+    ],
     take: 50,
     select: {
       id: true,
@@ -162,7 +170,7 @@ export default async function PostsPage({ searchParams }: Props) {
 
                   <PostsFilters
                     initialSearch={search ?? ""}
-                    initialPublish={publish ?? ""}
+                    initialPublish={publish}
                     initialCategory={categoryId ?? ""}
                     initialAuthor={authorId ?? ""}
                     categories={categories.map((c) => ({ id: c.id.toString(), title: c.title }))}

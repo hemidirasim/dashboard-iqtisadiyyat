@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { formatInTimeZone } from "date-fns-tz";
-
 import { prisma } from "@/lib/prisma";
 import { ArticleForm } from "@/components/admin/article-form";
 import { PostActionsWrapper } from "@/components/admin/post-actions-wrapper";
@@ -46,11 +44,15 @@ export default async function EditPostPage({ params }: Props) {
     }),
   ]);
 
-  // published_date-i datetime-local formatına çevir (Bakı vaxtında göstərmək üçün)
+  // published_date-i datetime-local formatına çevir (serverdə saxlanılan vaxtı olduğu kimi göstər)
   const formatDateTimeLocal = (date: Date | null | undefined): string => {
     if (!date) return "";
-    // UTC tarixini Bakı vaxtına çevir və datetime-local formatına gətir
-    return formatInTimeZone(date, "Asia/Baku", "yyyy-MM-dd'T'HH:mm");
+    try {
+      const isoString = new Date(date).toISOString();
+      return isoString.slice(0, 16);
+    } catch {
+      return "";
+    }
   };
 
   const defaultValues = {
