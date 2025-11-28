@@ -40,19 +40,39 @@ export default function LoginPage() {
   });
 
   const onSubmit = async (values: FormValues) => {
-    setError(null);
-    const result = await signIn("credentials", {
-      ...values,
-      redirect: false,
-      callbackUrl,
-    });
+    try {
+      setError(null);
+      console.log("🔐 Login attempt started for:", values.email);
+      
+      // signIn-i çağır (timeout olmadan)
+      const result = await signIn("credentials", {
+        ...values,
+        redirect: false,
+        callbackUrl,
+      });
 
-    if (result?.error) {
-      setError("İstifadəçi məlumatları yanlışdır.");
-      return;
+      console.log("🔐 Login result:", result);
+
+      if (result?.error) {
+        console.error("❌ Login error:", result.error);
+        setError("İstifadəçi məlumatları yanlışdır.");
+        return;
+      }
+
+      if (result?.ok) {
+        console.log("✅ Login successful, redirecting...");
+        // Session-in yüklənməsini gözlə
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        router.push(callbackUrl);
+        router.refresh();
+      } else {
+        console.error("❌ Login failed - no error but not ok:", result);
+        setError("Giriş zamanı xəta baş verdi. Zəhmət olmasa yenidən cəhd edin.");
+      }
+    } catch (error: any) {
+      console.error("❌ Login exception:", error);
+      setError(error?.message || "Giriş zamanı xəta baş verdi. Zəhmət olmasa yenidən cəhd edin.");
     }
-
-    router.push(callbackUrl);
   };
 
   return (

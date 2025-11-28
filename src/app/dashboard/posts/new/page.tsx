@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
-import { ArticleForm } from "@/components/admin/article-form";
+import { ArticleFormWrapper } from "@/components/admin/article-form-wrapper";
 import { Button } from "@/components/ui/button";
 
 export default async function NewPostPage() {
@@ -33,7 +33,7 @@ export default async function NewPostPage() {
           </p>
         </div>
       </div>
-      <ArticleForm categories={options} />
+      <ArticleFormWrapper categories={options} />
     </div>
   );
 }

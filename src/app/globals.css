@@ -76,4 +76,25 @@ body {
   body {
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+
+  /* Xəbər mətnində paraqraflar üçün styling - saytda görünməsi üçün */
+  .article-content p,
+  article p,
+  [class*="content"] p {
+    margin: 0 0 0.4em 0;
+    padding: 0;
+    line-height: 1.6;
+  }
+
+  .article-content p:last-child,
+  article p:last-child,
+  [class*="content"] p:last-child {
+    margin-bottom: 0;
+  }
+
+  .article-content p + p,
+  article p + p,
+  [class*="content"] p + p {
+    margin-top: 0.4em;
+  }
 }

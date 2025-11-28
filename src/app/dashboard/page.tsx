@@ -1,7 +1,7 @@
 import { Eye, FileText, Layers, NotebookPen } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatPublishedDate } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -117,7 +117,7 @@ export default async function DashboardPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                    {formatDate(post.published_date)}
+                    {formatPublishedDate(post.published_date)}
                   </TableCell>
                   <TableCell className="text-right">
                     {Number(post.view_count || BigInt(0)).toLocaleString("az-Latn-AZ")}

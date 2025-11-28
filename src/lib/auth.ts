@@ -4,7 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 
-import { prisma } from "@/lib/prisma";
+import { prisma, withRetry } from "@/lib/prisma";
 import { ROLE_LABEL } from "@/lib/constants";
 
 const credentialsSchema = z.object({
@@ -26,35 +26,53 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Şifrə", type: "password" },
       },
       async authorize(credentials) {
-        const parsed = credentialsSchema.safeParse(credentials);
-        if (!parsed.success) {
+        try {
+          console.log("🔐 Authorize called");
+          const parsed = credentialsSchema.safeParse(credentials);
+          if (!parsed.success) {
+            console.error("❌ Invalid credentials format:", parsed.error);
+            return null;
+          }
+
+          const { email, password } = parsed.data;
+          console.log("🔐 Looking up user:", email);
+          
+          // Prisma connection problemi üçün retry logic ilə istifadəçini tap
+          const user = await withRetry(async () => {
+            return await prisma.users.findFirst({
+              where: {
+                email,
+                status: true,
+                deleted_at: null,
+              },
+            });
+          });
+
+          console.log("🔐 User found:", user ? "Yes" : "No");
+
+          if (!user || !user.password) {
+            console.error("❌ User not found or no password");
+            return null;
+          }
+
+          console.log("🔐 Comparing password...");
+          const isValid = await compare(password, user.password);
+          if (!isValid) {
+            console.error("❌ Password invalid");
+            return null;
+          }
+
+          console.log("✅ Authorize successful for:", email);
+          return {
+            id: user.id.toString(),
+            name: `${user.name ?? ""} ${user.surname ?? ""}`.trim() || user.email,
+            email: user.email ?? undefined,
+            role: user.role ?? 0,
+          };
+        } catch (error: any) {
+          console.error("❌ Authorize error:", error);
           return null;
         }
-
-        const { email, password } = parsed.data;
-        const user = await prisma.users.findFirst({
-          where: {
-            email,
-            status: true,
-            deleted_at: null,
-          },
-        });
-
-        if (!user || !user.password) {
-          return null;
-        }
-
-        const isValid = await compare(password, user.password);
-        if (!isValid) {
-          return null;
-        }
-
-        return {
-          id: user.id.toString(),
-          name: `${user.name ?? ""} ${user.surname ?? ""}`.trim() || user.email,
-          email: user.email ?? undefined,
-          role: user.role ?? 0,
-        };
       },
     }),
   ],

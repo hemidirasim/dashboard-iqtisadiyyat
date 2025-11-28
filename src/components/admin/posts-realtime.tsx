@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatPublishedDate } from "@/lib/utils";
 import { format } from "date-fns";
 import { az } from "date-fns/locale";
 import {
@@ -172,7 +172,12 @@ export function PostsRealtime({ initialPosts }: PostsRealtimeProps) {
               posts.map((post) => (
                 <TableRow key={post.id}>
                   <TableCell className="font-medium">
-                    <Link href={`/dashboard/posts/${post.id}`} className="hover:underline">
+                    <Link 
+                      href={`/dashboard/posts/${post.id}`} 
+                      className="hover:underline"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       {post.title}
                     </Link>
                     <div className="mt-1 space-y-0.5">
@@ -219,7 +224,7 @@ export function PostsRealtime({ initialPosts }: PostsRealtimeProps) {
                     <div className="flex flex-col gap-1">
                       {post.published_date ? (
                         <p className="text-sm text-muted-foreground">
-                          {formatDate(post.published_date)}
+                          {formatPublishedDate(post.published_date)}
                         </p>
                       ) : (
                         <p className="text-sm text-muted-foreground">-</p>

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slugify";
+import { purgePostCache, purgeAllCloudflareCache } from "@/lib/cloudflare";
 
 const updateSchema = z.object({
   title: z.string().min(6),
@@ -20,6 +21,7 @@ const updateSchema = z.object({
   imageUrl: z.string().optional(),
   videoEmbed: z.string().optional(),
   galleryImages: z.array(z.string()).optional(),
+  titleColor: z.number().optional().default(0),
 });
 
 type Params = {
@@ -65,15 +67,19 @@ export async function PUT(request: Request, { params }: Params) {
           throw new Error("Invalid date components");
         }
 
-        // İstifadəçinin girdiyi tarix və saatı olduğu kimi saxla (timezone tətbiq etmirik)
-        const localDate = new Date(Date.UTC(year, month - 1, day, hours, minutes));
+        // İstifadəçinin girdiyi tarix və saatı olduğu kimi UTC kimi saxla
+        // Form-da Bakı vaxtı göstərilir, amma bazaya yazarkən UTC kimi saxla (heç bir çevirmə olmadan)
+        // Format: YYYY-MM-DDTHH:mm -> UTC Date (heç bir timezone offset olmadan)
+        // Date.UTC() istifadə edərək tarixi UTC kimi yaradırıq (heç bir çevirmə olmadan)
+        const utcTimestamp = Date.UTC(year, month - 1, day, hours, minutes, 0);
+        const utcDate = new Date(utcTimestamp);
 
-        if (isNaN(localDate.getTime())) {
+        if (isNaN(utcDate.getTime())) {
           throw new Error("Invalid date");
         }
 
-        // Heç bir convertasiya etmədən istifadəçinin göndərdiyi vaxtı yadda saxla
-        publishedDate = localDate;
+        // Tarixi UTC kimi saxla (heç bir çevirmə olmadan)
+        publishedDate = utcDate;
       } catch (error) {
         console.error("Error parsing publishedDate:", error, data.publishedDate);
         // Fallback: use current date
@@ -101,8 +107,9 @@ export async function PUT(request: Request, { params }: Params) {
       updateData.slug = slugify(data.title);
     }
 
-    if (data.subTitle !== undefined && data.subTitle !== null) {
-      updateData.sub_title = data.subTitle;
+    // subTitle həmişə update et (boş string də ola bilər)
+    if (data.subTitle !== undefined) {
+      updateData.sub_title = data.subTitle || null;
     }
 
     if (data.keywords !== undefined && data.keywords !== null) {
@@ -116,6 +123,10 @@ export async function PUT(request: Request, { params }: Params) {
 
     if (data.videoEmbed !== undefined && data.videoEmbed !== null) {
       updateData.youtube_link = data.videoEmbed;
+    }
+
+    if (data.titleColor !== undefined && data.titleColor !== null) {
+      updateData.title_color = data.titleColor;
     }
 
     if (publishedDate) {
@@ -165,8 +176,9 @@ export async function PUT(request: Request, { params }: Params) {
         // Qalan field-ləri ayrıca update et (constraint xətasını qarşısını almaq üçün)
         const additionalUpdateData: any = {};
         
-        if (data.subTitle !== undefined && data.subTitle !== null && data.subTitle !== "") {
-          additionalUpdateData.sub_title = data.subTitle;
+        // subTitle həmişə update et (boş string də ola bilər)
+        if (data.subTitle !== undefined) {
+          additionalUpdateData.sub_title = data.subTitle || null;
         }
         
         if (data.keywords !== undefined && data.keywords !== null && data.keywords !== "") {
@@ -180,6 +192,10 @@ export async function PUT(request: Request, { params }: Params) {
         
         if (data.videoEmbed !== undefined && data.videoEmbed !== null) {
           additionalUpdateData.youtube_link = data.videoEmbed;
+        }
+        
+        if (data.titleColor !== undefined && data.titleColor !== null) {
+          additionalUpdateData.title_color = data.titleColor;
         }
         
         // Update etməyə çalış (xəta olarsa, ignore et)
@@ -251,6 +267,11 @@ export async function PUT(request: Request, { params }: Params) {
   // Bütün promise-ləri parallel olaraq gözlə
   await Promise.all(promises);
 
+    // Cloudflare cache-i purge et
+    await purgePostCache(updatedPost.id.toString(), updatedPost.slug || null).catch((error) => {
+      console.error("Failed to purge Cloudflare cache:", error);
+    });
+
     return NextResponse.json({ id: updatedPost.id.toString() });
   } catch (error: any) {
     console.error("PUT /api/admin/posts/[postId] error:", error);
@@ -298,13 +319,21 @@ export async function DELETE(request: Request, { params }: Params) {
   const now = new Date();
   const userId = session.user?.id ? Number(session.user.id) : null;
 
-  await prisma.posts.update({
+  const deletedPost = await prisma.posts.update({
     where: { id },
     data: {
       deleted_at: now,
       deleted_by: userId,
       updated_at: now,
     },
+    select: {
+      slug: true,
+    },
+  });
+
+  // Cloudflare cache-i purge et
+  await purgePostCache(postId, deletedPost.slug || null).catch((error) => {
+    console.error("Failed to purge Cloudflare cache:", error);
   });
 
   return NextResponse.json({ message: "Məqalə silindi" });
@@ -324,7 +353,7 @@ export async function PATCH(request: Request, { params }: Params) {
   if (body.action === "toggle-status") {
     const post = await prisma.posts.findUnique({
       where: { id },
-      select: { status: true, deleted_at: true },
+      select: { status: true, deleted_at: true, slug: true },
     });
 
     if (!post) {
@@ -341,6 +370,15 @@ export async function PATCH(request: Request, { params }: Params) {
         status: !post.status,
         updated_at: now,
       },
+      select: {
+        status: true,
+        slug: true,
+      },
+    });
+
+    // Cloudflare cache-i purge et
+    await purgePostCache(postId, updatedPost.slug || null).catch((error) => {
+      console.error("Failed to purge Cloudflare cache:", error);
     });
 
     return NextResponse.json({
@@ -352,7 +390,7 @@ export async function PATCH(request: Request, { params }: Params) {
   if (body.action === "toggle-publish") {
     const post = await prisma.posts.findUnique({
       where: { id },
-      select: { publish: true, deleted_at: true },
+      select: { publish: true, deleted_at: true, slug: true, published_date: true },
     });
 
     if (!post) {
@@ -364,13 +402,29 @@ export async function PATCH(request: Request, { params }: Params) {
     }
 
     const newPublish = post.publish === 1 ? 0 : 1;
+    const updateData: any = {
+      publish: newPublish,
+      updated_at: now,
+    };
+
+    // Əgər yayımlanırsa və published_date yoxdursa, cari tarixi qoy
+    if (newPublish === 1 && !post.published_date) {
+      updateData.published_date = now;
+    }
+    // Əgər qaralama statusuna keçirilirsə, published_date-i silmə, saxla
+
     const updatedPost = await prisma.posts.update({
       where: { id },
-      data: {
-        publish: newPublish,
-        published_date: newPublish === 1 ? now : null,
-        updated_at: now,
+      data: updateData,
+      select: {
+        publish: true,
+        slug: true,
       },
+    });
+
+    // Cloudflare cache-i purge et
+    await purgePostCache(postId, updatedPost.slug || null).catch((error) => {
+      console.error("Failed to purge Cloudflare cache:", error);
     });
 
     return NextResponse.json({
@@ -382,7 +436,7 @@ export async function PATCH(request: Request, { params }: Params) {
   if (body.action === "restore") {
     const post = await prisma.posts.findUnique({
       where: { id },
-      select: { deleted_at: true },
+      select: { deleted_at: true, slug: true },
     });
 
     if (!post) {
@@ -393,13 +447,21 @@ export async function PATCH(request: Request, { params }: Params) {
       return NextResponse.json({ message: "Məqalə artıq bərpa olunub" }, { status: 400 });
     }
 
-    await prisma.posts.update({
+    const restoredPost = await prisma.posts.update({
       where: { id },
       data: {
         deleted_at: null,
         deleted_by: null,
         updated_at: now,
       },
+      select: {
+        slug: true,
+      },
+    });
+
+    // Cloudflare cache-i purge et
+    await purgePostCache(postId, post.slug || null).catch((error) => {
+      console.error("Failed to purge Cloudflare cache:", error);
     });
 
     return NextResponse.json({ message: "Məqalə bərpa edildi" });

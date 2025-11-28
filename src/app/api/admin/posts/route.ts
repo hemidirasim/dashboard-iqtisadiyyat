@@ -3,8 +3,9 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, reconnectPrisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slugify";
+import { purgePostCache } from "@/lib/cloudflare";
 
 const postSchema = z.object({
   title: z.string().min(6),
@@ -23,6 +24,7 @@ const postSchema = z.object({
   videoEmbed: z.string().optional(),
   galleryImages: z.array(z.string()).optional(),
   quick: z.boolean().optional(),
+  titleColor: z.number().optional().default(0),
 });
 
 export async function GET(request: Request) {
@@ -76,15 +78,18 @@ export async function GET(request: Request) {
             ],
           }
         : {}),
-      ...(publish === "draft"
-        ? {
-            publish: 0,
-          }
-        : publish === "live"
+      // Axtarış zamanı publish filterini tətbiq etmə (statusdan aslı olmayaraq)
+      ...(search
+        ? {}
+        : publish === "draft"
           ? {
-              publish: 1,
+              publish: 0,
             }
-          : {}),
+          : publish === "live"
+            ? {
+                publish: 1,
+              }
+            : {}),
       ...(categoryId && categoryPostIds.length > 0
         ? {
             id: {
@@ -327,15 +332,19 @@ export async function POST(request: Request) {
             throw new Error("Invalid date components");
           }
 
-          // İstifadəçinin girdiyi tarix və saatı olduğu kimi saxla (timezone tətbiq etmirik)
-          const localDate = new Date(Date.UTC(year, month - 1, day, hours, minutes));
+          // İstifadəçinin girdiyi tarix və saatı olduğu kimi UTC kimi saxla
+          // Form-da Bakı vaxtı göstərilir, amma bazaya yazarkən UTC kimi saxla (heç bir çevirmə olmadan)
+          // Format: YYYY-MM-DDTHH:mm -> UTC Date (heç bir timezone offset olmadan)
+          // Date.UTC() istifadə edərək tarixi UTC kimi yaradırıq (heç bir çevirmə olmadan)
+          const utcTimestamp = Date.UTC(year, month - 1, day, hours, minutes, 0);
+          const utcDate = new Date(utcTimestamp);
 
-          if (isNaN(localDate.getTime())) {
+          if (isNaN(utcDate.getTime())) {
             throw new Error("Invalid date");
           }
 
-          // Heç bir convertasiya etmədən istifadəçinin göndərdiyi vaxtı yadda saxla
-          publishedDate = localDate;
+          // Tarixi UTC kimi saxla (heç bir çevirmə olmadan)
+          publishedDate = utcDate;
         } catch (error) {
           console.error("Error parsing publishedDate:", error, data.publishedDate);
           publishedDate = now;
@@ -374,7 +383,7 @@ export async function POST(request: Request) {
       image_url: data.imageUrl || "iqtisadiyyat_logo_yasil-min.png",
       youtube_link: data.videoEmbed,
       // Default dəyərləri set et
-      title_color: 0,
+      title_color: data.titleColor ?? 0,
       count_show: 0,
       view_count: BigInt(0),
       created_at: now,
@@ -394,10 +403,25 @@ export async function POST(request: Request) {
         data: postDataFinal,
       });
     } catch (createError: any) {
-      // Əgər constraint xətası varsa, minimal field-lərlə yenidən yoxla
       const errorMessage = String(createError.message || "");
-      
-      if (errorMessage.includes("posts_chk_1") || errorMessage.includes("Check constraint")) {
+      const errorCode = String(createError.code || "");
+
+      // Connection problemi varsa, retry et
+      const isConnectionIssue =
+        errorCode === "P1017" || errorMessage.includes("Server has closed the connection");
+
+      if (isConnectionIssue) {
+        console.warn("⚠️  Prisma connection closed (P1017). Yenidən qoşulmağa çalışıram...");
+        try {
+          await reconnectPrisma();
+          post = await prisma.posts.create({
+            data: postDataFinal,
+          });
+        } catch (retryError: any) {
+          console.error("❌ Prisma reconnect sonrası da alınmadı:", retryError);
+          throw retryError;
+        }
+      } else if (errorMessage.includes("posts_chk_1") || errorMessage.includes("Check constraint")) {
         console.log("⚠️  posts_chk_1 constraint xətası, minimal field-lərlə yenidən yoxlayıram...");
         
         // Minimal field-lərlə yarad (yalnız məcburi field-lər: title, content, status, publish)
@@ -407,7 +431,7 @@ export async function POST(request: Request) {
           status: data.status ?? true,
           publish: publishValue,
           // Default dəyərlər
-          title_color: 0,
+          title_color: data.titleColor ?? 0,
           count_show: 0,
           view_count: BigInt(0),
           hidden: data.hidden ?? false,
@@ -433,9 +457,33 @@ export async function POST(request: Request) {
           minimalPostData.published_date = publishedDate;
         }
         
-        post = await prisma.posts.create({
-          data: minimalPostData,
-        });
+        try {
+          post = await prisma.posts.create({
+            data: minimalPostData,
+          });
+        } catch (minimalCreateError: any) {
+          const minimalErrorMessage = String(minimalCreateError.message || "");
+          const minimalErrorCode = String(minimalCreateError.code || "");
+
+          // Connection problemi varsa, retry et
+          const isMinimalConnectionIssue =
+            minimalErrorCode === "P1017" || minimalErrorMessage.includes("Server has closed the connection");
+
+          if (isMinimalConnectionIssue) {
+            console.warn("⚠️  Prisma connection closed (P1017) minimal create-də. Yenidən qoşulmağa çalışıram...");
+            try {
+              await reconnectPrisma();
+              post = await prisma.posts.create({
+                data: minimalPostData,
+              });
+            } catch (retryMinimalError: any) {
+              console.error("❌ Prisma reconnect sonrası minimal create də alınmadı:", retryMinimalError);
+              throw retryMinimalError;
+            }
+          } else {
+            throw minimalCreateError;
+          }
+        }
         
         // Qalan field-ləri update et (constraint xətasını qarşısını almaq üçün try-catch)
         // Yalnız null/undefined olmayan field-ləri update et
@@ -525,6 +573,11 @@ export async function POST(request: Request) {
 
     // Bütün promise-ləri parallel olaraq gözlə
     await Promise.all(promises);
+
+    // Cloudflare cache-i purge et
+    await purgePostCache(post.id.toString(), post.slug || null).catch((error) => {
+      console.error("Failed to purge Cloudflare cache:", error);
+    });
 
     return NextResponse.json({ id: post.id.toString() }, { status: 201 });
   } catch (error: any) {

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "@/lib/prisma";
-import { ArticleForm } from "@/components/admin/article-form";
+import { ArticleFormWrapper } from "@/components/admin/article-form-wrapper";
 import { PostActionsWrapper } from "@/components/admin/post-actions-wrapper";
 import { PostEditingStatus } from "@/components/admin/post-editing-status";
 import { Button } from "@/components/ui/button";
@@ -44,14 +45,27 @@ export default async function EditPostPage({ params }: Props) {
     }),
   ]);
 
-  // published_date-i datetime-local formatına çevir (serverdə saxlanılan vaxtı olduğu kimi göstər)
+  // published_date-i datetime-local formatına çevir
+  // Databazada UTC formatında saxlanılır, biz onu olduğu kimi göstəririk (heç bir çevirmə olmadan)
   const formatDateTimeLocal = (date: Date | null | undefined): string => {
-    if (!date) return "";
     try {
-      const isoString = new Date(date).toISOString();
-      return isoString.slice(0, 16);
+      if (date) {
+        // Tarixi olduğu kimi formatla (heç bir timezone çevirməsi olmadan)
+        // Date object-dən birbaşa il, ay, gün, saat, dəqiqə alırıq
+        const dateObj = new Date(date);
+        const year = dateObj.getUTCFullYear();
+        const month = String(dateObj.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(dateObj.getUTCDate()).padStart(2, "0");
+        const hours = String(dateObj.getUTCHours()).padStart(2, "0");
+        const minutes = String(dateObj.getUTCMinutes()).padStart(2, "0");
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+      } else {
+        // Tarix yoxdursa, cari tarixi Bakı vaxtı ilə göstər
+        return formatInTimeZone(new Date(), "Asia/Baku", "yyyy-MM-dd'T'HH:mm");
+      }
     } catch {
-      return "";
+      // Xəta halında cari tarixi göstər
+      return formatInTimeZone(new Date(), "Asia/Baku", "yyyy-MM-dd'T'HH:mm");
     }
   };
 
@@ -71,21 +85,41 @@ export default async function EditPostPage({ params }: Props) {
       .map((value) => value!.toString()),
     imageUrl: post.image_url ?? "",
     videoEmbed: post.youtube_link ?? "",
+    titleColor: post.title_color ?? 0,
     galleryImages: (() => {
-      const images = galleryImages
+      // Əvvəlcə əsas şəkli əlavə et (əgər varsa)
+      const mainImage = post.image_url 
+        ? post.image_url.trim() 
+        : null;
+      
+      // Qalereya şəkillərini hazırla
+      const galleryImageUrls = galleryImages
         .map((img) => img.name)
         .filter((name): name is string => Boolean(name) && typeof name === "string" && name.trim().length > 0);
+      
+      // Əsas şəkil varsa, əvvələ əlavə et (qalereyada olsa belə, birinci yerdə göstərilməlidir)
+      const allImages: string[] = [];
+      if (mainImage) {
+        allImages.push(mainImage);
+      }
+      
+      // Qalereya şəkillərini əlavə et (əsas şəkil varsa, onu təkrarlamamaq üçün filter et)
+      const uniqueGalleryImages = mainImage
+        ? galleryImageUrls.filter((url) => url !== mainImage)
+        : galleryImageUrls;
+      allImages.push(...uniqueGalleryImages);
       
       // Debug üçün console.log
       console.log("EditPostPage: Processed gallery images", {
         postId: post.id.toString(),
-        rawCount: galleryImages.length,
-        processedCount: images.length,
-        rawImages: galleryImages.map((img) => img.name),
-        processedImages: images,
+        mainImage,
+        galleryCount: galleryImageUrls.length,
+        uniqueGalleryCount: uniqueGalleryImages.length,
+        totalCount: allImages.length,
+        allImages,
       });
       
-      return images;
+      return allImages;
     })(),
   };
 
@@ -117,7 +151,7 @@ export default async function EditPostPage({ params }: Props) {
         />
       </div>
       <PostEditingStatus postId={post.id.toString()} />
-      <ArticleForm postId={post.id.toString()} categories={options} defaultValues={defaultValues} />
+      <ArticleFormWrapper postId={post.id.toString()} categories={options} defaultValues={defaultValues} />
     </div>
   );
 }

@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 
-import { prisma } from "@/lib/prisma";
+import { prisma, withRetry } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
-import { PostsFilters } from "@/components/admin/posts-filters";
+import { PostsFiltersWrapper } from "@/components/admin/posts-filters-wrapper";
 import { PostsRealtime } from "@/components/admin/posts-realtime";
 
 type Props = {
@@ -31,98 +31,113 @@ export default async function PostsPage({ searchParams }: Props) {
   const showDeleted = includeDeleted && isAdmin;
 
   const [categories, authors, categoryPostIds] = await Promise.all([
-    prisma.categories.findMany({
-      where: { deleted_at: null, status: true },
-      select: { id: true, title: true },
-      orderBy: { order: "asc" },
-    }),
-    prisma.users.findMany({
-      where: { deleted_at: null, status: true },
-      select: { id: true, name: true, surname: true, email: true },
-      orderBy: { name: "asc" },
-    }),
+    withRetry(async () => {
+      return await prisma.categories.findMany({
+        where: { deleted_at: null, status: true },
+        select: { id: true, title: true },
+        orderBy: { order: "asc" },
+      });
+    }).catch(() => []),
+    withRetry(async () => {
+      return await prisma.users.findMany({
+        where: { deleted_at: null, status: true },
+        select: { id: true, name: true, surname: true, email: true },
+        orderBy: { name: "asc" },
+      });
+    }).catch(() => []),
     categoryId
-      ? prisma.category_post.findMany({
-          where: { category_id: BigInt(categoryId) },
-          select: { post_id: true },
-        })
+      ? withRetry(async () => {
+          return await prisma.category_post.findMany({
+            where: { category_id: BigInt(categoryId) },
+            select: { post_id: true },
+          });
+        }).catch(() => [])
       : Promise.resolve([]),
   ]);
 
   const postIds = categoryPostIds.map((cp) => cp.post_id).filter(Boolean) as bigint[];
 
-  const posts = await prisma.posts.findMany({
-    where: {
-      // Admin isə və showDeleted true-dursa, silinmiş xəbərləri də göstər
-      ...(showDeleted ? {} : { deleted_at: null }),
-      // Admin panelində gizli xəbərləri də göstər
-      ...(search
-        ? {
-            OR: [
-              {
-                title: {
-                  contains: search,
-                },
-              },
-              {
-                sub_title: {
-                  contains: search,
-                },
-              },
-            ],
-          }
-        : {}),
-      ...(publish === "draft"
-        ? {
-            publish: 0,
-          }
-        : publish === "live"
+  // Retry logic for Prisma connection issues
+  const posts = await withRetry(async () => {
+    return await prisma.posts.findMany({
+      where: {
+        // Admin isə və showDeleted true-dursa, silinmiş xəbərləri də göstər
+        ...(showDeleted ? {} : { deleted_at: null }),
+        // Admin panelində gizli xəbərləri də göstər
+        ...(search
           ? {
-              publish: 1,
+              OR: [
+                {
+                  title: {
+                    contains: search,
+                  },
+                },
+                {
+                  sub_title: {
+                    contains: search,
+                  },
+                },
+              ],
             }
           : {}),
-      ...(categoryId && postIds.length > 0
-        ? {
-            id: {
-              in: postIds,
-            },
-          }
-        : categoryId && postIds.length === 0
+        // Axtarış zamanı publish filterini tətbiq etmə (statusdan aslı olmayaraq)
+        ...(search
+          ? {}
+          : publish === "draft"
+            ? {
+                publish: 0,
+              }
+            : publish === "live"
+              ? {
+                  publish: 1,
+                }
+              : {}),
+        ...(categoryId && postIds.length > 0
           ? {
               id: {
-                in: [],
+                in: postIds,
               },
             }
+          : categoryId && postIds.length === 0
+            ? {
+                id: {
+                  in: [],
+                },
+              }
+            : {}),
+        ...(authorId
+          ? {
+              opened_user_id: Number(authorId),
+            }
           : {}),
-      ...(authorId
-        ? {
-            opened_user_id: Number(authorId),
-          }
-        : {}),
-    },
-    orderBy: [
-      {
-        published_date: {
-          sort: "desc",
-          nulls: "last",
-        },
       },
-      { created_at: "desc" },
-    ],
-    take: 50,
-    select: {
-      id: true,
-      title: true,
-      slug: true,
-      publish: true,
-      status: true,
-      hidden: true,
-      view_count: true,
-      published_date: true,
-      created_at: true,
-      deleted_at: true,
-      opened_user_id: true,
-    },
+      orderBy: [
+        {
+          published_date: {
+            sort: "desc",
+            nulls: "last",
+          },
+        },
+        { created_at: "desc" },
+      ],
+      take: 50,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        publish: true,
+        status: true,
+        hidden: true,
+        view_count: true,
+        published_date: true,
+        created_at: true,
+        deleted_at: true,
+        opened_user_id: true,
+      },
+    });
+  }).catch((error) => {
+    console.error("Error fetching posts:", error);
+    return []; // Fallback: boş array qaytar
   });
 
   // Müəllif məlumatlarını gətir
@@ -131,17 +146,19 @@ export default async function PostsPage({ searchParams }: Props) {
     .filter((id): id is number => id !== null && id !== undefined);
 
   const postAuthors = authorIds.length > 0
-    ? await prisma.users.findMany({
-        where: {
-          id: { in: authorIds.map((id) => BigInt(id)) },
-        },
-        select: {
-          id: true,
-          name: true,
-          surname: true,
-          email: true,
-        },
-      })
+    ? await withRetry(async () => {
+        return await prisma.users.findMany({
+          where: {
+            id: { in: authorIds.map((id) => BigInt(id)) },
+          },
+          select: {
+            id: true,
+            name: true,
+            surname: true,
+            email: true,
+          },
+        });
+      }).catch(() => [])
     : [];
 
   const postAuthorMap = new Map(
@@ -161,24 +178,24 @@ export default async function PostsPage({ searchParams }: Props) {
           </p>
         </div>
         <Button asChild className="gap-2">
-          <Link href="/dashboard/posts/new">
+          <Link href="/dashboard/posts/new" target="_blank" rel="noopener noreferrer">
             <Plus className="size-4" />
             Yeni məqalə
           </Link>
         </Button>
       </div>
 
-                  <PostsFilters
-                    initialSearch={search ?? ""}
-                    initialPublish={publish}
-                    initialCategory={categoryId ?? ""}
-                    initialAuthor={authorId ?? ""}
-                    categories={categories.map((c) => ({ id: c.id.toString(), title: c.title }))}
-                    authors={authors.map((a) => ({
-                      id: a.id.toString(),
-                      name: `${a.name} ${a.surname || ""}`.trim() || a.email || "",
-                    }))}
-                  />
+      <PostsFiltersWrapper
+        initialSearch={search ?? ""}
+        initialPublish={publish}
+        initialCategory={categoryId ?? ""}
+        initialAuthor={authorId ?? ""}
+        categories={categories.map((c) => ({ id: c.id.toString(), title: c.title }))}
+        authors={authors.map((a) => ({
+          id: a.id.toString(),
+          name: `${a.name} ${a.surname || ""}`.trim() || a.email || "",
+        }))}
+      />
 
       <PostsRealtime
         initialPosts={posts.map((post) => {

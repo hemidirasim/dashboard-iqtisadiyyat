@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RichTextEditor } from "@/components/admin/rich-text-editor";
 import { ImageUpload } from "@/components/admin/image-upload";
 import { api } from "@/lib/api";
@@ -41,6 +42,7 @@ const formSchema = z.object({
   imageUrl: z.string().optional(),
   videoEmbed: z.string().optional(),
   galleryImages: z.array(z.string()).optional(),
+  titleColor: z.number().optional().default(0),
 });
 
 export type ArticleFormValues = z.infer<typeof formSchema>;
@@ -50,7 +52,7 @@ export type ArticleCategory = {
   title: string;
 };
 
-type ArticleFormProps = {
+export type ArticleFormProps = {
   postId?: string;
   defaultValues?: Partial<ArticleFormValues>;
   categories: ArticleCategory[];
@@ -59,10 +61,11 @@ type ArticleFormProps = {
 export function ArticleForm({ postId, defaultValues, categories }: ArticleFormProps) {
   const router = useRouter();
   
-  // Yeni məqalə yaradarkən (postId yoxdursa və defaultValues-də publishedDate yoxdursa) Bakı vaxtını default dəyər kimi təyin et
+  // Yeni məqalə yaradarkən və edit zamanı Bakı vaxtını default dəyər kimi təyin et
+  // Edit zamanı mövcud tarix varsa onu istifadə et, yoxdursa cari Bakı vaxtını təyin et
   const defaultPublishedDate = defaultValues?.publishedDate 
     ? defaultValues.publishedDate 
-    : (!postId ? getBakuDateTimeLocal() : "");
+    : getBakuDateTimeLocal();
   
   const form = useForm<ArticleFormValues>({
     resolver: zodResolver(formSchema),
@@ -80,6 +83,7 @@ export function ArticleForm({ postId, defaultValues, categories }: ArticleFormPr
       imageUrl: defaultValues?.imageUrl || "",
       videoEmbed: defaultValues?.videoEmbed || "",
       galleryImages: defaultValues?.galleryImages || [],
+      titleColor: defaultValues?.titleColor ?? 0,
     },
   });
 
@@ -108,11 +112,12 @@ export function ArticleForm({ postId, defaultValues, categories }: ArticleFormPr
         status: defaultValues.status ?? true,
         publish: defaultValues.publish ?? true,
         hidden: defaultValues.hidden ?? false,
-        publishedDate: defaultValues.publishedDate || defaultPublishedDate,
+        publishedDate: defaultValues.publishedDate || defaultPublishedDate || getBakuDateTimeLocal(),
         categoryIds: defaultValues.categoryIds || [],
         imageUrl: defaultValues.imageUrl || "",
         videoEmbed: defaultValues.videoEmbed || "",
         galleryImages: defaultValues.galleryImages || [],
+        titleColor: defaultValues.titleColor ?? 0,
       });
     }
   }, [defaultValues, form, defaultPublishedDate]);
@@ -157,6 +162,22 @@ export function ArticleForm({ postId, defaultValues, categories }: ArticleFormPr
         <div className="space-y-2">
           <Label htmlFor="subTitle">Qısa təsvir</Label>
           <Textarea id="subTitle" rows={3} {...form.register("subTitle")} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="titleColor">Başlıq forması</Label>
+          <Select
+            value={form.watch("titleColor")?.toString() || "0"}
+            onValueChange={(value) => form.setValue("titleColor", parseInt(value, 10))}
+          >
+            <SelectTrigger id="titleColor">
+              <SelectValue placeholder="Başlıq forması seçin" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">Standart</SelectItem>
+              <SelectItem value="1">Qara bold</SelectItem>
+              <SelectItem value="2">Qırmızı bold</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label>Məqalə mətni</Label>
@@ -261,20 +282,71 @@ export function ArticleForm({ postId, defaultValues, categories }: ArticleFormPr
               onCheckedChange={(hidden: boolean) => form.setValue("hidden", hidden)}
             />
           </div>
-          {form.watch("publish") && (
-            <div className="space-y-2">
-              <Label htmlFor="publishedDate">Yayımlanma tarixi və saatı</Label>
-              <Input
-                id="publishedDate"
-                type="datetime-local"
-                value={form.watch("publishedDate") || ""}
-                onChange={(e) => form.setValue("publishedDate", e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Xəbərin yayımlanma tarixini və saatını müəyyən edin. Boş buraxsanız, cari tarix və saat istifadə olunacaq.
-              </p>
+          <div className="space-y-2">
+            <Label htmlFor="publishedDate">Yayımlanma tarixi və saatı</Label>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Input
+                  id="publishedDate-date"
+                  type="date"
+                  value={(() => {
+                    const dateTime = form.watch("publishedDate") || "";
+                    return dateTime ? dateTime.split("T")[0] : "";
+                  })()}
+                  onChange={(e) => {
+                    const currentDateTime = form.watch("publishedDate") || "";
+                    const currentTime = currentDateTime.includes("T") 
+                      ? currentDateTime.split("T")[1] 
+                      : formatInTimeZone(new Date(), "Asia/Baku", "HH:mm");
+                    form.setValue("publishedDate", e.target.value ? `${e.target.value}T${currentTime}` : "");
+                  }}
+                />
+              </div>
+              <div className="w-24">
+                <Input
+                  id="publishedDate-time"
+                  type="text"
+                  placeholder="HH:mm"
+                  maxLength={5}
+                  className="font-mono text-center"
+                  value={(() => {
+                    const dateTime = form.watch("publishedDate") || "";
+                    return dateTime && dateTime.includes("T") 
+                      ? dateTime.split("T")[1] 
+                      : "";
+                  })()}
+                  onChange={(e) => {
+                    let value = e.target.value.replace(/[^0-9:]/g, "").slice(0, 5);
+                    
+                    // HH:mm formatına avtomatik uyğunlaşdır
+                    if (value.length === 2 && !value.includes(":")) {
+                      value = value + ":";
+                    } else if (value.length === 3 && value[2] !== ":") {
+                      value = value.slice(0, 2) + ":" + value[2];
+                    }
+                    
+                    // Dəyərləri validate et
+                    if (value.length === 5 && value.match(/^\d{2}:\d{2}$/)) {
+                      const [hours, minutes] = value.split(":").map(Number);
+                      if (hours > 23 || minutes > 59) {
+                        return; // Düzgün olmayan dəyərləri qəbul etmə
+                      }
+                    }
+                    
+                    const currentDateTime = form.watch("publishedDate") || "";
+                    const currentDate = currentDateTime.includes("T")
+                      ? currentDateTime.split("T")[0]
+                      : formatInTimeZone(new Date(), "Asia/Baku", "yyyy-MM-dd");
+                    
+                    form.setValue("publishedDate", currentDate ? `${currentDate}T${value}` : "");
+                  }}
+                />
+              </div>
             </div>
-          )}
+            <p className="text-xs text-muted-foreground">
+              Xəbərin yayımlanma tarixini və saatını müəyyən edin (24-lük format). Boş buraxsanız, cari tarix və saat istifadə olunacaq.
+            </p>
+          </div>
         </section>
 
         <section className="space-y-2 rounded-xl border bg-card p-4">
